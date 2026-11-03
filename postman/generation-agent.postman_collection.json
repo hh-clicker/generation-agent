@@ -1,0 +1,360 @@
+{
+  "info": {
+    "name": "HH Clicker — Generation Agent",
+    "description": "Standalone generation experiments. Postman Desktop; no auth token. POST stores an ID for polling. Idempotency-Key prevents duplicate execution with the same input/settings. Relevance, market-extraction and legacy market-coverage share GENERATION_MAX_CONCURRENT_ANALYSIS (default 4, range 1-1000); legacy GENERATION_MAX_CONCURRENT_RELEVANCE is the fallback. Memory admission may reduce concurrency; excess jobs stay queued. Letters and helpers share one sequential worker with admission priority, outside the analysis ceiling. GENERATION_MAX_PENDING (default 20) applies only to ordinary jobs. GET /metrics?runId=<UUID> recognizes backend relevance and market batch/attempt keys and reports safe timings/counts without user texts. Health reports runningAnalysis/queuedAnalysis, resources.maxConcurrentAnalysis and availableAnalysisSlots; old relevance resource aliases remain compatible.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:17374"
+    },
+    {
+      "key": "generationId",
+      "value": ""
+    },
+    {
+      "key": "questionId",
+      "value": ""
+    },
+    {
+      "key": "codeSolutionId",
+      "value": ""
+    },
+    {
+      "key": "marketExtractionId",
+      "value": ""
+    },
+    {
+      "key": "marketCoverageId",
+      "value": ""
+    },
+    {
+      "key": "vacancyRelevanceId",
+      "value": ""
+    },
+    {
+      "key": "idempotencyKey",
+      "value": "experiment-001"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Health and configured model",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/health"
+      }
+    },
+    {
+      "name": "2. Codex authorization status",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/auth/status"
+      }
+    },
+    {
+      "name": "3. Generate a cover letter",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/generations",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}",
+            "disabled": true,
+            "description": "Enable only to retry delivery of the same experiment. Change key for a new experiment."
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"resumeText\": \"Java-разработчик. Разрабатывал backend-сервисы на Java и Spring Boot, работал с PostgreSQL, писал модульные тесты и участвовал в code review.\",\n  \"vacancyText\": \"Ищем Java-разработчика. Задачи: развитие backend-сервисов, работа с PostgreSQL, написание тестов. Используем Spring Boot и Kafka. Опыт с Kafka будет плюсом.\",\n  \"instructions\": \"Два коротких абзаца, спокойно и по делу. Не выдумывай опыт с Kafka. Без подписи и контактов.\",\n  \"maxLength\": 1000\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Accepted or reused', () => pm.expect(pm.response.code).to.be.oneOf([200, 202]));",
+              "if ([200, 202].includes(pm.response.code)) {",
+              "  const job = pm.response.json();",
+              "  pm.collectionVariables.set('generationId', job.id);",
+              "  console.log('Generation', job.id, job.model, job.reasoningEffort);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Poll result (Send until done or failed)",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/generations/{{generationId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Found', () => pm.response.to.have.status(200));",
+              "if (pm.response.code === 200) {",
+              "  const job = pm.response.json();",
+              "  console.log('Status:', job.status, 'Timings:', job.timings, 'Usage:', job.usage);",
+              "  if (job.error) console.log('Error:', job.error.code, job.error.message);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Answer a question",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/questions",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"question\": \"Сколько будет 2 + 2?\",\n  \"answers\": [\"3\", \"4\", \"5\"],\n  \"title\": \"Арифметика\",\n  \"taskNumber\": 1,\n  \"taskCount\": 10\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Accepted', () => pm.response.to.have.status(202));",
+              "if (pm.response.code === 202) pm.collectionVariables.set('questionId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Poll question result (Send until done or failed)",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/questions/{{questionId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Found', () => pm.response.to.have.status(200));",
+              "if (pm.response.code === 200) console.log(pm.response.json());"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Generate a code solution",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/code-solutions",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Сумма двух чисел\",\n  \"statement\": \"Верните сумму a и b.\",\n  \"language\": \"go\",\n  \"code\": \"package main\\n\",\n  \"taskNumber\": 2,\n  \"taskCount\": 3\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Accepted', () => pm.response.to.have.status(202));",
+              "if (pm.response.code === 202) pm.collectionVariables.set('codeSolutionId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Poll code solution (Send until done or failed)",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/code-solutions/{{codeSolutionId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Found', () => pm.response.to.have.status(200));",
+              "if (pm.response.code === 200) console.log(pm.response.json());"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Extract exact market terms",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/market-extraction",
+        "description": "Result facts: {name, kind, evidence}; kind is TECHNOLOGY, SKILL or DOMAIN. There is no fixed per-vacancy fact count. Name must be an exact substring of the evidence and is not normalized. Shared-prefix lists such as Spring Boot / Cloud / Security remain one verbatim term. Diagnostics list rejected terms.",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"vacancies\":[{\"id\":\"123e4567-e89b-12d3-a456-426614174000\",\"title\":\"Java-разработчик\",\"text\":\"Требуется опыт с Kubernetes и PostgreSQL.\"}]}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if ([200, 202].includes(pm.response.code)) pm.collectionVariables.set('marketExtractionId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Poll market extraction",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/market-extraction/{{marketExtractionId}}"
+      }
+    },
+    {
+      "name": "11. Legacy: compare market requirements with resume",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/market-coverage",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"resumeText\":\"Разрабатывал Java-сервисы с PostgreSQL.\",\"requirements\":[{\"id\":\"123e4567-e89b-12d3-a456-426614174001\",\"name\":\"PostgreSQL\"}]}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if ([200, 202].includes(pm.response.code)) pm.collectionVariables.set('marketCoverageId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12. Poll market coverage",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/market-coverage/{{marketCoverageId}}"
+      }
+    },
+    {
+      "name": "13. Evaluate vacancies with optional full text",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/vacancy-relevance",
+        "description": "Classifies the predominant professional role and specialization, not candidate readiness or matching-skill percentage. Missing individual skills do not demote a matching role; an incidental familiar language does not make another primary ecosystem a target. One selectable matching track is enough.",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"resumeText\":\"Java backend-разработчик со Spring Boot.\",\"vacancies\":[{\"hhId\":\"101\",\"title\":\"Java-разработчик\",\"plainText\":\"Задачи: разрабатывать сервисы на Java и Spring Boot.\"},{\"hhId\":\"102\",\"title\":\"Backend-разработчик\"}]}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if ([200, 202].includes(pm.response.code)) pm.collectionVariables.set('vacancyRelevanceId', pm.response.json().id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "14. Poll vacancy relevance",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/vacancy-relevance/{{vacancyRelevanceId}}"
+      }
+    },
+    {
+      "name": "15. Read diagnostic metrics (no generation)",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/metrics",
+        "description": "Read-only JSON metrics. Add ?runId=<backend-parallel-run-UUID> to isolate one relevance run. jobs contains live safe telemetry and recent terminal records, capped at 200; summary covers every matching retained job. CLI milestones are relative receive times, not server timings or first-token guarantees. No raw stdout, stderr, prompts, answers or thread IDs."
+      }
+    }
+  ]
+}

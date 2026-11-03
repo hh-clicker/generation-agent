@@ -1,0 +1,50 @@
+name: hh-clicker-generation
+
+services:
+  generation-agent:
+    build:
+      context: .
+      args:
+        CODEX_CLI_VERSION: ${CODEX_CLI_VERSION:-0.163.0}
+    init: true
+    restart: unless-stopped
+    labels:
+      com.hh-clicker.instance-id: ${HH_CLICKER_INSTANCE_ID:-unmanaged}
+      com.hh-clicker.version: ${HH_CLICKER_VERSION:-dev}
+      com.hh-clicker.profile: ${HH_CLICKER_PROFILE:-development}
+    ports:
+      - "127.0.0.1:${GENERATION_PORT:-17374}:17374"
+    environment:
+      GENERATION_HOST: 0.0.0.0
+      GENERATION_PORT: 17374
+      GENERATION_DATA_DIR: /data
+      CODEX_MODEL: ${CODEX_MODEL:-gpt-6-luna}
+      CODEX_REASONING_EFFORT: ${CODEX_REASONING_EFFORT:-low}
+      CODEX_TIMEOUT_MS: ${CODEX_TIMEOUT_MS:-180000}
+      GENERATION_MAX_PENDING: ${GENERATION_MAX_PENDING:-20}
+      GENERATION_MAX_CONCURRENT_ANALYSIS: ${GENERATION_MAX_CONCURRENT_ANALYSIS:-${GENERATION_MAX_CONCURRENT_RELEVANCE:-4}}
+      GENERATION_MEMORY_PERCENT: ${GENERATION_MEMORY_PERCENT:-25}
+      GENERATION_JOB_MEMORY_MIB: ${GENERATION_JOB_MEMORY_MIB:-128}
+      GENERATION_RETENTION_DAYS: ${GENERATION_RETENTION_DAYS:-7}
+    volumes:
+      - generation-data:/data
+      - codex-home:/home/node/.codex
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=128m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    # CLI subprocesses create their own OS threads. Admission is based on memory,
+    # not a fixed PID count or a fixed RAM ceiling shared by every machine.
+    pids_limit: -1
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:17374/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  generation-data:
+  codex-home:
