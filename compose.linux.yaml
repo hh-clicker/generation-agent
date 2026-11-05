@@ -1,0 +1,9 @@
+services:
+  generation-agent:
+    networks:
+      - infra
+
+networks:
+  infra:
+    external: true
+    name: ${HH_CLICKER_INFRA_PROJECT:-hh-clicker}_generation

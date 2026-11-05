@@ -131,7 +131,7 @@ POST сохраняет задание и ключ идемпотентност�
   Передача данных модели идёт через stdin, рабочая папка временная, sandbox read-only,
   shell и web search отключены. Не включён bypass из прототипа.
 - HTTP без токена: порт публикуется **только на 127.0.0.1**, CORS отсутствует,
-  разрешены localhost и `host.docker.internal` для backend-контейнера, браузерный Origin отклоняется. Используй Postman Desktop/curl; веб-клиент может
+  разрешены localhost, `host.docker.internal` и имя сервиса `generation-agent` для backend-контейнера, браузерный Origin отклоняется. Используй Postman Desktop/curl; веб-клиент может
   блокироваться. Это не защита от других локальных процессов/пользователей компьютера.
 
 ```powershell

@@ -14,6 +14,9 @@ import {
   emptyMarketResult, MarketOutputError,
 } from './contract.js';
 
+const AUTH_SUCCESS_CACHE_MS = 5 * 60_000;
+const AUTH_FAILURE_CACHE_MS = 10_000;
+
 // No shell interpolation, unbounded logs, or resume text in process arguments.
 export function runProcess(command, args, { cwd, input = '', timeoutMs, signal, onSpawn, onTelemetry } = {}) {
   return new Promise(resolve => {
@@ -204,7 +207,7 @@ export class CodexRunner {
       if (status?.authenticated && revision === this.authRevision && !this.authRejected) {
         limits = status.limits;
         this.authCheckedAt = new Date().toISOString();
-        this.authCache = { value: status, until: Date.now() + 30000 };
+        this.authCache = { value: status, until: Date.now() + AUTH_SUCCESS_CACHE_MS };
       }
     } catch { /* Keep RATE_LIMIT even if the diagnostic query fails. */ }
     const resets = [limits?.primary, limits?.secondary]
@@ -215,10 +218,10 @@ export class CodexRunner {
       message: safeFailure('RATE_LIMIT').message + (resetsAt ? ` Сброс ожидается ${new Date(resetsAt * 1000).toISOString()} (UTC).` : ' Время сброса получить не удалось.') };
   }
 
-  async authStatus(signal) {
+  async authStatus(signal, forceRefresh = false) {
     if (this.accountCheck) {
       if (this.authRejected) return { authenticated: false, method: null, limits: null, error: safeFailure('AUTH_REQUIRED') };
-      if (this.authCache && Date.now() < this.authCache.until) return this.authCache.value;
+      if (!forceRefresh && this.authCache && Date.now() < this.authCache.until) return this.authCache.value;
       if (this.authPending) return this.authPending;
       const revision = this.authRevision;
       const operation = (async () => {
@@ -231,7 +234,7 @@ export class CodexRunner {
         }
         if (revision !== this.authRevision || this.authRejected) return { authenticated: false, method: null, limits: null, error: safeFailure(this.authRejected ? 'AUTH_REQUIRED' : 'AUTH_CHECK_FAILED') };
         this.authCheckedAt = new Date().toISOString();
-        this.authCache = { value, until: Date.now() + (value.error ? 10000 : 30000) };
+        this.authCache = { value, until: Date.now() + (value.error ? AUTH_FAILURE_CACHE_MS : AUTH_SUCCESS_CACHE_MS) };
         return value;
       })();
       this.authPending = operation;

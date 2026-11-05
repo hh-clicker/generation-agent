@@ -291,6 +291,7 @@ test('worker is sequential, admission is bounded and shutdown aborts active gene
 test('web origins and DNS-rebinding hosts are rejected without an API token', () => {
   checkLocalRequest({ headers: { host: '127.0.0.1:17374' } });
   checkLocalRequest({ headers: { host: 'host.docker.internal:17374' } });
+  checkLocalRequest({ headers: { host: 'generation-agent:17374' } });
   for (const headers of [{ host: 'evil.test' }, { host: 'localhost', origin: 'https://example.test' },
     { host: 'localhost', 'sec-fetch-site': 'cross-site' }]) assert.throws(() => checkLocalRequest({ headers }));
 });

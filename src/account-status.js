@@ -12,12 +12,12 @@ export async function checkAccount(codexBin, createClient = () => new CodexAppSe
   const client = createClient();
   try {
     await client.start(3000);
-    const response = await client.request('account/read', { refreshToken: true }, 4000);
+    const response = await client.request('account/read', { refreshToken: true }, 20000);
     if (!response?.account) throw new Error('AUTH_REQUIRED');
     const method = response.account.type === 'chatgpt' ? 'chatgpt' : 'api_key';
     let limits = null;
     if (method === 'chatgpt') {
-      const result = await client.request('account/rateLimits/read', undefined, 4000);
+      const result = await client.request('account/rateLimits/read', undefined, 20000);
       const bucket = result?.rateLimitsByLimitId?.codex ?? result?.rateLimits;
       if (bucket) limits = { primary: rateLimitWindow(bucket.primary), secondary: rateLimitWindow(bucket.secondary) };
     }

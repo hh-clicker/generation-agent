@@ -42,9 +42,10 @@ test('concurrent consumers share online request and cache; new login invalidates
   finish(ready);
   assert.deepEqual(await a, ready); assert.deepEqual(await b, ready);
   assert.deepEqual(await runner.authStatus(), ready); assert.equal(calls, 1);
+  assert.deepEqual(await runner.authStatus(undefined, true), ready); assert.equal(calls, 2);
   await runner.authenticationChanged(true);
   await runner.authStatus();
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
 });
 
 test('network failure reports unknown readiness, not logout, and never leaks diagnostics', async () => {

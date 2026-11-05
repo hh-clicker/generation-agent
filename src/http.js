@@ -14,7 +14,7 @@ function respond(res, status, body) {
 
 export function checkLocalRequest(req) {
   // Loopback binding alone does not protect an unauthenticated local API from websites.
-  if (!/^(localhost|127\.0\.0\.1|\[::1\]|host\.docker\.internal)(:\d{1,5})?$/.test(req.headers.host ?? '')) throw new RequestError(403, 'LOCAL_ONLY', 'Разрешены только localhost и локальный Docker host.');
+  if (!/^(localhost|127\.0\.0\.1|\[::1\]|host\.docker\.internal|generation-agent)(:\d{1,5})?$/.test(req.headers.host ?? '')) throw new RequestError(403, 'LOCAL_ONLY', 'Разрешены только localhost и локальная сеть Docker.');
   if (req.headers.origin || (req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'none')) {
     throw new RequestError(403, 'BROWSER_ORIGIN_DENIED', 'Запросы со страниц браузера запрещены. Используйте Postman Desktop или curl.');
   }
@@ -56,7 +56,7 @@ export function createServer(config, queue, runner, authManager = null) {
         return respond(res, 200, queue.metrics(runId));
       }
       if (req.method === 'POST' && url.pathname === '/auth/status/refresh') {
-        await runner.authStatus();
+        await runner.authStatus(undefined, true);
         return respond(res, 200, runner.authSnapshot ? runner.authSnapshot() : await runner.authStatus());
       }
       if (req.method === 'POST' && url.pathname === '/auth/login/start' && authManager) {
