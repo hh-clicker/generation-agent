@@ -184,7 +184,7 @@ export function safeGenerationTelemetry(value) {
 const ERROR_CODES = ['TIMEOUT', 'INTERRUPTED', 'CLI_UNAVAILABLE', 'RESOURCE_EXHAUSTED', 'OUTPUT_TOO_LARGE',
   'AUTH_REQUIRED', 'AUTH_CHECK_FAILED', 'RATE_LIMIT', 'MODEL_UNAVAILABLE', 'CLI_CONFIG_ERROR',
   'SCHEMA_REJECTED', 'NETWORK_ERROR', 'INVALID_OUTPUT', 'EMPTY_LETTER', 'CODEX_FAILED'];
-const KINDS = ['cover-letter', 'question-answer', 'code-solution', 'vacancy-relevance', 'market-extraction', 'market-coverage'];
+const KINDS = ['cover-letter', 'question-answer', 'code-solution', 'vacancy-relevance', 'market-extraction', 'market-coverage', 'selector-repair'];
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const RUN_KEY = new RegExp(`^relevance-(${UUID})-(\\d+)$`);
 const MARKET_KEY = new RegExp(`^market-(${UUID})-extract-(\\d+)-attempt-(\\d+)$`);

@@ -521,6 +521,7 @@ export function parseCodeSolutionOutput(raw) {
 }
 
 export function promptVersionFor(kind) {
+  if (kind === 'selector-repair') return 'selector-repair-v5';
   if (kind === 'market-extraction') return MARKET_EXTRACTION_PROMPT_VERSION;
   if (kind === 'market-coverage') return MARKET_COVERAGE_PROMPT_VERSION;
   if (kind === 'vacancy-relevance') return VACANCY_RELEVANCE_PROMPT_VERSION;
@@ -529,6 +530,7 @@ export function promptVersionFor(kind) {
 }
 
 export function inputCharactersFor(kind, input) {
+  if (kind === 'selector-repair') return { structure: input.html.length, selectors: JSON.stringify(input.group).length };
   if (kind === 'market-extraction') return { vacancies: input.vacancies.reduce((sum, vacancy) => sum + vacancy.text.length, 0) };
   if (kind === 'market-coverage') return { resume: input.resumeText.length, requirements: input.requirements.reduce((sum, item) => sum + item.name.length, 0) };
   if (kind === 'vacancy-relevance') {

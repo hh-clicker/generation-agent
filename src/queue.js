@@ -47,7 +47,9 @@ export class GenerationQueue {
       if (this.stopping || this.storageFailed) throw new RequestError(503, 'UNAVAILABLE', 'Сервис останавливается или хранилище недоступно.');
       if (key !== undefined && (typeof key !== 'string' || !/^[a-zA-Z0-9._-]{1,120}$/.test(key))) throw new RequestError(400, 'INVALID_KEY', 'Некорректный Idempotency-Key.');
       const promptVersion = promptVersionFor(kind);
-      const fingerprint = createHash('sha256').update(JSON.stringify({ kind, input, model: this.config.model, reasoning: this.config.reasoningEffort, promptVersion })).digest('hex');
+      const model = kind === 'selector-repair' ? this.config.selectorRepairModel ?? 'gpt-6-sol' : this.config.model;
+      const reasoningEffort = kind === 'selector-repair' ? this.config.selectorRepairReasoningEffort ?? 'medium' : this.config.reasoningEffort;
+      const fingerprint = createHash('sha256').update(JSON.stringify({ kind, input, model, reasoning: reasoningEffort, promptVersion })).digest('hex');
       if (key) {
         const previous = [...this.jobs.values()].find(job => job.idempotencyKey === key);
         if (previous) {
@@ -61,7 +63,7 @@ export class GenerationQueue {
       }
       const job = {
         id: randomUUID(), status: 'queued', createdAt: new Date().toISOString(), startedAt: null, completedAt: null,
-        model: this.config.model, reasoningEffort: this.config.reasoningEffort, timeoutMs: this.config.timeoutMs,
+        model, reasoningEffort, timeoutMs: this.config.timeoutMs,
         kind, cliVersion: null, promptVersion,
         vacancyCount: ['vacancy-relevance', 'market-extraction'].includes(kind) ? input.vacancies.length : null,
         inputCharacters: inputCharactersFor(kind, input),

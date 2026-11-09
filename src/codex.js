@@ -3,8 +3,11 @@ import { mkdtemp, mkdir, writeFile, readFile, stat, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { fileURLToPath } from 'node:url';
+import { StringDecoder } from 'node:string_decoder';
 import { checkAccount } from './account-status.js';
 import { CliTelemetry, GenerationTelemetry } from './telemetry.js';
+import { buildSelectorRepairPrompt, selectorRepairOutputSchema, parseSelectorRepairOutput } from './selector-repair.js';
 import {
   buildCodeSolutionPrompt, buildPrompt, buildQuestionPrompt, buildVacancyRelevancePrompt,
   codeSolutionOutputSchema, outputSchema, parseCodeSolutionOutput, parseOutput, parseQuestionOutput,
@@ -18,7 +21,7 @@ const AUTH_SUCCESS_CACHE_MS = 5 * 60_000;
 const AUTH_FAILURE_CACHE_MS = 10_000;
 
 // No shell interpolation, unbounded logs, or resume text in process arguments.
-export function runProcess(command, args, { cwd, input = '', timeoutMs, signal, onSpawn, onTelemetry } = {}) {
+export function runProcess(command, args, { cwd, input = '', timeoutMs, signal, onSpawn, onTelemetry, lifecycleOnly = false } = {}) {
   return new Promise(resolve => {
     const started = performance.now();
     const telemetry = new CliTelemetry();
@@ -28,6 +31,29 @@ export function runProcess(command, args, { cwd, input = '', timeoutMs, signal, 
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '', stderr = '', bytes = 0, failure = null, finished = false, killTimer;
+    const decoder = new StringDecoder('utf8');
+    let pending = '', droppingLine = false;
+    const retainLifecycle = line => {
+      if (!line || line.length > 65536) return;
+      let event;
+      try { event = JSON.parse(line); } catch { return; }
+      if (!['turn.completed', 'turn.failed', 'error'].includes(event?.type)) return;
+      const text = line + '\n';
+      bytes += Buffer.byteLength(text);
+      if (bytes > 2 * 1024 * 1024) { stop('OUTPUT_TOO_LARGE'); return; }
+      stdout += text;
+    };
+    const consumeLifecycle = text => {
+      pending += text;
+      let end;
+      while ((end = pending.indexOf('\n')) >= 0) {
+        const line = pending.slice(0, end);
+        pending = pending.slice(end + 1);
+        if (!droppingLine) retainLifecycle(line);
+        droppingLine = false;
+      }
+      if (pending.length > 65536) { pending = ''; droppingLine = true; }
+    };
     const kill = force => {
       if (!child.pid) return;
       try {
@@ -51,13 +77,20 @@ export function runProcess(command, args, { cwd, input = '', timeoutMs, signal, 
       // Also reap descendants when a terminated wrapper exits before its children.
       if (failure) kill(true);
       signal?.removeEventListener('abort', abort);
+      if (lifecycleOnly) {
+        consumeLifecycle(decoder.end());
+        if (!droppingLine) retainLifecycle(pending);
+      }
       telemetry.finish(exitCode, exitSignal);
       resolve({ exitCode, stdout, stderr, failure, durationMs: Math.round(performance.now() - started), telemetry: telemetry.snapshot() });
     };
     const capture = (chunk, isError) => {
+      telemetry.feed(chunk, isError);
+      // MCP item events contain HTML. Consume their counters, not their raw contents;
+      // reading a complete file must not exhaust the diagnostic capture budget.
+      if (lifecycleOnly && !isError) { consumeLifecycle(decoder.write(chunk)); return; }
       bytes += chunk.length;
       if (bytes > 2 * 1024 * 1024) { stop('OUTPUT_TOO_LARGE'); return; }
-      telemetry.feed(chunk, isError);
       if (isError) stderr += chunk.toString('utf8');
       else stdout += chunk.toString('utf8');
     };
@@ -106,6 +139,7 @@ const errors = {
   MODEL_UNAVAILABLE: 'Выбранная модель или reasoning недоступны. Проверьте .env.',
   CLI_CONFIG_ERROR: 'Codex отклонил параметры запуска. Проверьте закреплённую версию CLI и настройки.',
   SCHEMA_REJECTED: 'Codex отклонил JSON-схему ответа. Проверьте совместимость модели и CLI.',
+  INPUT_TOO_LARGE: 'Codex отклонил слишком большое текстовое сообщение. HTML для починки должен передаваться отдельным файлом.',
   NETWORK_ERROR: 'Codex не смог подключиться к сервису. Проверьте сеть контейнера.',
   INVALID_OUTPUT: 'Ответ Codex не соответствует ожидаемому формату. Сырой ответ не используется.',
   EMPTY_LETTER: 'Codex не сформировал письмо. Проверьте исходные тексты и пожелания.',
@@ -118,6 +152,7 @@ function classify(result) {
   if (result.failure) return result.failure;
   // Only use raw diagnostics for classification in memory; never return or log them.
   const text = result.stderr + '\n' + result.stdout;
+  if (/input exceeds the maximum length|user input.*(?:too large|too long)|maximum.*context length|context (?:window|length).*exceed/i.test(text)) return 'INPUT_TOO_LARGE';
   if (/resource temporarily unavailable|cannot allocate memory|os error (?:11|12)\b|failed to spawn.*thread/i.test(result.stderr)) return 'RESOURCE_EXHAUSTED';
   if (/unexpected argument|unrecognized (?:argument|option)|invalid value.*--/i.test(text)) return 'CLI_CONFIG_ERROR';
   if (/invalid.*schema|schema.*(?:not supported|unsupported|invalid)/i.test(text)) return 'SCHEMA_REJECTED';
@@ -135,6 +170,14 @@ export function generationArgs(job, dir) {
     '-c', `model_reasoning_effort=${JSON.stringify(job.reasoningEffort)}`,
     '-c', 'features.shell_tool=false', '-c', 'features.unified_exec=false',
     '-c', 'web_search="disabled"', '-c', 'history.persistence="none"',
+    ...(job.kind === 'selector-repair' ? [
+      '-c', `mcp_servers.selector_html.command=${JSON.stringify(process.execPath)}`,
+      '-c', `mcp_servers.selector_html.args=${JSON.stringify([fileURLToPath(new URL('./selector-html-reader.js', import.meta.url)), path.join(dir, 'page.html')])}`,
+      '-c', 'mcp_servers.selector_html.enabled_tools=["read_html","find_in_html"]',
+      '-c', 'mcp_servers.selector_html.tools.read_html.output_token_limit=65536',
+      '-c', 'mcp_servers.selector_html.tools.find_in_html.output_token_limit=65536',
+      '-c', 'mcp_servers.selector_html.required=true',
+    ] : []),
     // Isolation flags belong to exec, not the root codex command.
     'exec', '--ignore-user-config', '--ignore-rules',
     '--model', job.model, '--sandbox', 'read-only',
@@ -267,23 +310,26 @@ export class CodexRunner {
       const vacancyRelevance = job.kind === 'vacancy-relevance';
       const marketExtraction = job.kind === 'market-extraction';
       const marketCoverage = job.kind === 'market-coverage';
+      const selectorRepair = job.kind === 'selector-repair';
       dir = await mkdtemp(path.join(tmpdir(), 'hh-generation-'));
-      const schema = question
+      const schema = selectorRepair ? selectorRepairOutputSchema(job.input) : question
         ? questionOutputSchema(job.input.answers.length)
         : (codeSolution ? codeSolutionOutputSchema()
           : (vacancyRelevance ? vacancyRelevanceOutputSchema(job.input)
             : marketExtraction ? marketExtractionOutputSchema(job.input)
               : marketCoverage ? marketCoverageOutputSchema(job.input) : outputSchema(job.input.maxLength)));
       await writeFile(path.join(dir, 'schema.json'), JSON.stringify(schema), { mode: 0o600 });
+      if (selectorRepair) await writeFile(path.join(dir, 'page.html'), job.input.html, { mode: 0o600 });
       telemetry.enter('cli');
       execution = await this.execute(this.config.codexBin, generationArgs(job, dir), {
         cwd: dir,
-        input: question
+        input: selectorRepair ? buildSelectorRepairPrompt(job.input) : question
           ? buildQuestionPrompt(job.input)
           : (codeSolution ? buildCodeSolutionPrompt(job.input)
             : (vacancyRelevance ? buildVacancyRelevancePrompt(job.input)
               : marketExtraction ? buildMarketExtractionPrompt(job.input)
                 : marketCoverage ? buildMarketCoveragePrompt(job.input) : buildPrompt(job.input))),
+        lifecycleOnly: selectorRepair,
         timeoutMs: job.timeoutMs,
         signal,
         onSpawn,
@@ -310,7 +356,7 @@ export class CodexRunner {
         throw new Error('INVALID_OUTPUT');
       }
       const raw = await readFile(output, 'utf8');
-      const result = question
+      const result = selectorRepair ? parseSelectorRepairOutput(raw, job.input) : question
         ? parseQuestionOutput(raw, job.input)
         : (codeSolution ? parseCodeSolutionOutput(raw)
           : (vacancyRelevance ? parseVacancyRelevanceOutput(raw, job.input)

@@ -10,13 +10,17 @@ export function readConfig(env = process.env) {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(model)) throw new Error('Invalid CODEX_MODEL');
   const reasoningEffort = env.CODEX_REASONING_EFFORT ?? 'low';
   if (!['low', 'medium', 'high', 'xhigh'].includes(reasoningEffort)) throw new Error('Invalid CODEX_REASONING_EFFORT');
+  const selectorRepairModel = env.CODEX_SELECTOR_REPAIR_MODEL ?? 'gpt-6-sol';
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(selectorRepairModel)) throw new Error('Invalid CODEX_SELECTOR_REPAIR_MODEL');
+  const selectorRepairReasoningEffort = env.CODEX_SELECTOR_REPAIR_REASONING_EFFORT ?? 'medium';
+  if (!['low', 'medium', 'high', 'xhigh'].includes(selectorRepairReasoningEffort)) throw new Error('Invalid CODEX_SELECTOR_REPAIR_REASONING_EFFORT');
   const host = env.GENERATION_HOST ?? '127.0.0.1';
   if (!['127.0.0.1', '0.0.0.0', '::1'].includes(host)) throw new Error('Invalid GENERATION_HOST');
   const concurrencyKey = env.GENERATION_MAX_CONCURRENT_ANALYSIS !== undefined
     ? 'GENERATION_MAX_CONCURRENT_ANALYSIS' : 'GENERATION_MAX_CONCURRENT_RELEVANCE';
   const maxConcurrentAnalysis = integer(concurrencyKey, 4, 1, 1000);
   return {
-    host, model, reasoningEffort,
+    host, model, reasoningEffort, selectorRepairModel, selectorRepairReasoningEffort,
     port: integer('GENERATION_PORT', 17374, 1, 65535),
     timeoutMs: integer('CODEX_TIMEOUT_MS', 180000, 1000, 900000),
     maxPending: integer('GENERATION_MAX_PENDING', 20, 1, 100),

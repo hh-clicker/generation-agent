@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { validateSelectorRepairInput } from './selector-repair.js';
 import {
   RequestError, validateCodeSolutionInput, validateInput, validateQuestionInput, validateVacancyRelevanceInput,
   validateMarketExtractionInput, validateMarketCoverageInput,
@@ -20,13 +21,13 @@ export function checkLocalRequest(req) {
   }
 }
 
-async function readBody(req) {
+async function readBody(req, maxBytes = 1024 * 1024) {
   if (!(req.headers['content-type'] ?? '').toLowerCase().match(/^application\/json(?:\s*;|$)/)) throw new RequestError(415, 'JSON_REQUIRED', 'Content-Type должен быть application/json.');
   const chunks = [];
   let bytes = 0;
   for await (const chunk of req) {
     bytes += chunk.length;
-    if (bytes > 1024 * 1024) throw new RequestError(413, 'BODY_TOO_LARGE', 'Размер запроса больше 1 МиБ.');
+    if (bytes > maxBytes) throw new RequestError(413, 'BODY_TOO_LARGE', 'Размер запроса больше 1 МиБ.');
     chunks.push(chunk);
   }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
@@ -71,6 +72,14 @@ export function createServer(config, queue, runner, authManager = null) {
       if (req.method === 'POST' && url.pathname === '/auth/logout' && authManager) {
         return respond(res, 200, await authManager.logout());
       }
+      if (req.method === 'POST' && url.pathname === '/selector-repair') {
+        // A complete cleaned DOM must not be rejected by the smaller text-job body limit.
+        const input = validateSelectorRepairInput(await readBody(req, Infinity));
+        const { job, reused } = await queue.create(input, req.headers['idempotency-key'], 'selector-repair');
+        return respond(res, reused ? 200 : 202, { ...job, reused, url: `/selector-repair/${job.id}` });
+      }
+      const selectorRepairMatch = url.pathname.match(/^\/selector-repair\/([^/]+)$/);
+      if (req.method === 'GET' && selectorRepairMatch) return respond(res, 200, queue.find(selectorRepairMatch[1], 'selector-repair'));
       if (req.method === 'POST' && url.pathname === '/generations') {
         const input = validateInput(await readBody(req));
         const { job, reused } = await queue.create(input, req.headers['idempotency-key']);

@@ -10,6 +10,7 @@ import {
   validateCodeSolutionInput, validateInput, validateQuestionInput, validateVacancyRelevanceInput,
 } from '../src/contract.js';
 import { CodexRunner as Runner, generationArgs, parseEvents, runProcess } from '../src/codex.js';
+import { validateSelectorRepairInput } from '../src/selector-repair.js';
 class CodexRunner extends Runner { constructor(config, execute) { super(config, execute, null); } }
 import { GenerationQueue } from '../src/queue.js';
 import { checkLocalRequest, createServer } from '../src/http.js';
@@ -162,6 +163,56 @@ test('exec isolation flags follow the subcommand, while approval stays on the ro
   const approvalIndex = args.indexOf('--ask-for-approval');
   assert.ok(approvalIndex >= 0 && approvalIndex < execIndex);
   assert.equal(args[approvalIndex + 1], 'never');
+});
+
+test('runner uses the dedicated selector-repair schema, prompt and output parser', async () => {
+  let snapshotPath;
+  const repair = validateSelectorRepairInput({ group: { schemaVersion: 1, id: 'profile', selectors: {
+    root: { kind: 'css', value: '.old', purpose: 'Profile root', contract: { action: 'read', scope: '$page', cardinality: 'one' } },
+  } }, brokenKeys: ['root'], diagnostics: [
+    { key: 'root', status: 'FAIL', matched: 0, visible: 0, required: false, message: 'Missing root' },
+  ], html: '<main>Мои резюме</main>' });
+  const runner = new CodexRunner(config, async (_command, args, options) => {
+    if (args.includes('login')) return { exitCode: 0, stdout: '', stderr: 'Logged in using ChatGPT', failure: null };
+    assert.match(options.input, /селекторы ЧТЕНИЯ/);
+    assert.equal(options.lifecycleOnly, true);
+    assert.ok(args.includes('features.shell_tool=false'));
+    assert.ok(args.includes('features.unified_exec=false'));
+    assert.ok(args.includes('web_search="disabled"'));
+    assert.ok(args.includes('mcp_servers.selector_html.enabled_tools=["read_html","find_in_html"]'));
+    const readerArgs = JSON.parse(args.find(arg => arg.startsWith('mcp_servers.selector_html.args=')).split('=').slice(1).join('='));
+    snapshotPath = readerArgs[1];
+    assert.equal(path.dirname(snapshotPath), options.cwd);
+    assert.equal(await readFile(snapshotPath, 'utf8'), repair.html);
+    assert.doesNotMatch(options.input, /<main>/);
+    const schema = JSON.parse(await readFile(args[args.indexOf('--output-schema') + 1], 'utf8'));
+    assert.deepEqual(schema.properties.items.items.properties.key.enum, ['root']);
+    await writeFile(args[args.indexOf('-o') + 1], JSON.stringify({ items: [{ key: 'root', kind: 'css', value: 'main',
+      status: 'verified', include: 'Profile', exclude: 'Header', reason: 'Main content' }] }));
+    return { exitCode: 0, stdout: '', stderr: '', failure: null, durationMs: 1 };
+  });
+  const result = await runner.run({ ...config, kind: 'selector-repair', input: repair }, new AbortController().signal);
+  assert.equal(result.error, null);
+  assert.deepEqual(result.result, { selectors: { root: { kind: 'css', value: 'main' } },
+    audit: { root: { status: 'verified', include: 'Profile', exclude: 'Header', reason: 'Main content' } } });
+  await assert.rejects(readFile(snapshotPath), { code: 'ENOENT' });
+});
+
+test('failed selector generation also removes its snapshot and reports input size errors safely', async () => {
+  let snapshotPath;
+  const repair = validateSelectorRepairInput({ group: { schemaVersion: 1, id: 'profile', selectors: {
+    root: { kind: 'css', value: '.old', purpose: 'Profile', contract: { action: 'read', scope: '$page', cardinality: 'one' } },
+  } }, brokenKeys: ['root'], diagnostics: [{ key: 'root', status: 'FAIL', matched: 0, visible: 0, required: false, message: 'Missing' }], html: '<main>PRIVATE</main>' });
+  const runner = new CodexRunner(config, async (_command, args, options) => {
+    if (args.includes('login')) return { exitCode: 0, stdout: '', stderr: 'Logged in using ChatGPT', failure: null };
+    snapshotPath = path.join(options.cwd, 'page.html');
+    assert.equal(await readFile(snapshotPath, 'utf8'), repair.html);
+    return { exitCode: 1, stdout: '', stderr: 'Input exceeds the maximum length of 1048576 characters. PRIVATE', failure: null, durationMs: 1 };
+  });
+  const result = await runner.run({ ...config, kind: 'selector-repair', input: repair }, new AbortController().signal);
+  assert.equal(result.error.code, 'INPUT_TOO_LARGE');
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE/);
+  await assert.rejects(readFile(snapshotPath), { code: 'ENOENT' });
 });
 
 test('runner uses final file, extracts timings, and removes temporary output', async () => {
@@ -393,4 +444,18 @@ test('process timeout terminates a local fake worker, never invokes Codex', asyn
   const result = await runProcess(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { timeoutMs: 1000 });
   assert.equal(result.failure, 'TIMEOUT');
   assert.ok(result.durationMs >= 900);
+});
+
+test('MCP file reads above the diagnostic output budget retain usage but never retain HTML item payloads', async () => {
+  const worker = `
+    const item = JSON.stringify({type:'item.completed',item:{type:'mcp_tool_call',result:{html:'PRIVATE_HTML'+ 'x'.repeat(12000)}}})+'\\n';
+    for(let index=0;index<220;index++)process.stdout.write(item);
+    process.stdout.write(JSON.stringify({type:'turn.completed',usage:{input_tokens:12,cached_input_tokens:0,output_tokens:3}})+'\\n');
+  `;
+  const result = await runProcess(process.execPath, ['-e', worker], { timeoutMs: 10000, lifecycleOnly: true });
+  assert.equal(result.failure, null);
+  assert.equal(result.exitCode, 0);
+  assert.doesNotMatch(result.stdout, /PRIVATE_HTML/);
+  assert.deepEqual(parseEvents(result.stdout).usage, { inputTokens: 12, cachedInputTokens: 0, outputTokens: 3 });
+  assert.ok(result.telemetry.stdoutBytes > 2 * 1024 * 1024);
 });
