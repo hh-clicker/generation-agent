@@ -16,6 +16,8 @@ ENV NODE_ENV=production \
     CODEX_HOME=/home/node/.codex
 WORKDIR /app
 COPY --chown=node:node package.json ./
+COPY --chown=node:node LICENSE ./LICENSE
+COPY --chown=node:node licenses ./licenses
 COPY --chown=node:node src ./src
 USER node
 EXPOSE 17374

@@ -319,3 +319,11 @@ Codex CLI. Предпочтителен Docker: локальный запуск 
 - [Authentication](https://learn.chatgpt.com/docs/auth): device auth и хранение авторизации.
 - [Configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference): reasoning, shell, web search.
 - [CLI changelog](https://learn.chatgpt.com/docs/changelog): закреплённая версия 0.163.0.
+
+## License
+
+HH Clicker original code and documentation are licensed under the [MIT License](LICENSE).
+Third-party components retain their own licenses and notices.
+The image includes supplementary Codex CLI 0.163.0 LICENSE/NOTICE and Ratatui MIT terms
+under `/app/licenses/codex-0.163.0`. Existing npm and native-library notices are preserved.
+This set follows the default `CODEX_CLI_VERSION`; review it when overriding or upgrading the CLI.

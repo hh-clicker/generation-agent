@@ -1,4 +1,7 @@
 *
 !package.json
+!LICENSE
+!licenses/
+!licenses/**
 !src/
 !src/**

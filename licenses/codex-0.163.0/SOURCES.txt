@@ -1,0 +1,19 @@
+OpenAI Codex CLI 0.163.0
+
+Unmodified upstream LICENSE and NOTICE:
+https://raw.githubusercontent.com/openai/codex/rust-v0.163.0/LICENSE
+https://raw.githubusercontent.com/openai/codex/rust-v0.163.0/NOTICE
+
+Corresponding upstream source:
+https://github.com/openai/codex/tree/rust-v0.163.0
+
+Ratatui 0.30.2 is listed in that version's codex-rs/Cargo.lock.
+Ratatui-0.30.2-MIT.txt is the original LICENSE from its published crate:
+https://static.crates.io/crates/ratatui/ratatui-0.30.2.crate
+The crate checksum was verified against the Codex lockfile when importing the text.
+
+This supplementary set applies to the default CODEX_CLI_VERSION=0.163.0.
+Recheck and update the versioned notices when selecting another CLI version.
+It does not replace notices shipped in the npm/platform packages, including their
+voice-library licenses, source manifests and dynamically linked native libraries.
+It is not an exhaustive inventory of all code statically linked into Codex.
